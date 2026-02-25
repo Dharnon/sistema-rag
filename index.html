@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema RAG - Actas On-Call</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #334155;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --border: #475569;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+    .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 30px; }
+    header h1 { font-size: 1.8rem; display: flex; align-items: center; gap: 12px; }
+    header h1 span { background: var(--accent); padding: 4px 12px; border-radius: 6px; font-size: 0.9rem; }
+    .stats { display: flex; gap: 20px; }
+    .stat-card { background: var(--bg-secondary); padding: 12px 20px; border-radius: 8px; text-align: center; }
+    .stat-card .value { font-size: 1.5rem; font-weight: bold; color: var(--accent); }
+    .stat-card .label { font-size: 0.8rem; color: var(--text-secondary); }
+    .search-section { background: var(--bg-secondary); padding: 30px; border-radius: 12px; margin-bottom: 30px; }
+    .search-box { display: flex; gap: 12px; margin-bottom: 20px; }
+    .search-box input { flex: 1; padding: 14px 20px; border: 2px solid var(--border); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font-size: 1rem; }
+    .search-box input:focus { outline: none; border-color: var(--accent); }
+    .search-box button { padding: 14px 30px; background: var(--accent); color: white; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    .search-box button:hover { background: var(--accent-hover); }
+    .search-box button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .filters { display: flex; gap: 12px; flex-wrap: wrap; }
+    .filter-group { display: flex; align-items: center; gap: 8px; }
+    .filter-group label { color: var(--text-secondary); font-size: 0.9rem; }
+    .filter-group select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); }
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; background: var(--bg-primary); padding: 4px; border-radius: 8px; }
+    .tab { flex: 1; padding: 12px; text-align: center; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; border-radius: 6px; }
+    .tab.active { background: var(--accent); color: white; }
+    .result-card { background: var(--bg-secondary); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); margin-bottom: 16px; }
+    .result-header { padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; }
+    .result-title { font-size: 1.1rem; margin-bottom: 8px; }
+    .result-meta { display: flex; gap: 8px; flex-wrap: wrap; }
+    .meta-tag { padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; background: var(--bg-card); }
+    .meta-tag.critical { background: var(--danger); }
+    .meta-tag.high { background: #f97316; }
+    .meta-tag.medium { background: var(--warning); color: #000; }
+    .meta-tag.low { background: var(--success); }
+    .result-score { font-size: 0.9rem; color: var(--text-secondary); }
+    .result-score strong { color: var(--accent); }
+    .result-body { padding: 0 20px 20px; display: none; }
+    .result-body.open { display: block; }
+    .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .info-box { background: var(--bg-card); padding: 14px; border-radius: 8px; }
+    .info-box h4 { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; }
+    .info-box p { font-size: 0.9rem; }
+    .participants-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .participant { background: var(--bg-primary); padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
+    .works-list { display: grid; gap: 10px; }
+    .work-item { background: var(--bg-primary); padding: 12px; border-radius: 6px; border-left: 3px solid var(--accent); }
+    .work-date { font-size: 0.75rem; color: var(--accent); margin-bottom: 4px; }
+    .work-desc { font-size: 0.85rem; }
+    .hours-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px; }
+    .hour-item { text-align: center; background: var(--bg-primary); padding: 10px; border-radius: 6px; }
+    .hour-value { font-size: 1.2rem; font-weight: bold; color: var(--accent); }
+    .hour-label { font-size: 0.7rem; color: var(--text-secondary); }
+    .result-chunks { margin-top: 20px; }
+    .chunk { background: var(--bg-card); padding: 14px; border-radius: 8px; margin-bottom: 10px; }
+    .chunk-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.8rem; color: var(--text-secondary); }
+    .chunk-score { color: var(--accent); }
+    .chunk-text { font-size: 0.9rem; line-height: 1.5; }
+    .loading, .no-results { text-align: center; padding: 40px; color: var(--text-secondary); }
+    .upload-section { background: var(--bg-secondary); padding: 30px; border-radius: 12px; margin-bottom: 30px; }
+    .upload-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; }
+    .upload-zone:hover { border-color: var(--accent); }
+    .upload-zone input { display: none; }
+    .upload-icon { font-size: 3rem; margin-bottom: 10px; }
+    .incident-card { background: var(--bg-secondary); border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid var(--border); cursor: pointer; }
+    .incident-card:hover { border-color: var(--accent); }
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-secondary); }
+    .empty-state h3 { margin-bottom: 10px; color: var(--text-primary); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📋 Sistema RAG <span>Actas On-Call</span></h1>
+      <div class="stats" id="stats">
+        <div class="stat-card"><div class="value" id="totalIncidents">-</div><div class="label">Actas</div></div>
+        <div class="stat-card"><div class="value" id="totalChunks">-</div><div class="label">Chunks</div></div>
+      </div>
+    </header>
+    <div class="tabs">
+      <button class="tab active" data-tab="search">🔍 Búsqueda</button>
+      <button class="tab" data-tab="upload">📤 Subir Actas</button>
+      <button class="tab" data-tab="incidents">📁 Todas las Actas</button>
+    </div>
+    <div id="search-tab" class="tab-content">
+      <div class="search-section">
+        <div class="search-box">
+          <input type="text" id="searchInput" placeholder="¿Qué buscas? Ej: intervenciones SAP, problemas Oracle..." />
+          <button id="searchBtn">Buscar</button>
+        </div>
+        <div class="filters">
+          <div class="filter-group"><label>Severidad:</label><select id="severityFilter"><option value="">Todas</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>
+          <div class="filter-group"><label>Categoría:</label><select id="categoryFilter"><option value="">Todas</option><option value="Incidencia">Incidencia</option><option value="Acta">Acta</option><option value="On-Call">On-Call</option></select></div>
+        </div>
+      </div>
+      <div id="results"></div>
+    </div>
+    <div id="upload-tab" class="tab-content" style="display:none">
+      <div class="upload-section">
+        <div class="upload-zone" id="uploadZone">
+          <div class="upload-icon">📄</div>
+          <h3>Arrastra PDFs aquí o haz clic</h3>
+          <p style="color:var(--text-secondary);margin-top:10px">Archivos PDF</p>
+          <input type="file" id="fileInput" accept=".pdf" multiple />
+        </div>
+      </div>
+    </div>
+    <div id="incidents-tab" class="tab-content" style="display:none"><div id="incidentsList"></div></div>
+  </div>
+  <script>
+    const API_URL = 'http://localhost:3001';
+    async function loadStats() { try { const r = await fetch(`${API_URL}/stats`); const d = await r.json(); document.getElementById('totalIncidents').textContent=d.totalIncidents||0; document.getElementById('totalChunks').textContent=d.totalChunks||0; } catch(e){} }
+    async function search() {
+      const q = document.getElementById('searchInput').value.trim(); if(!q) return;
+      const btn = document.getElementById('searchBtn'); btn.disabled=true; btn.textContent='Buscando...';
+      const filters={}; const s=document.getElementById('severityFilter').value; const c=document.getElementById('categoryFilter').value;
+      if(s) filters.severity=[s]; if(c) filters.category=c;
+      try {
+        const r = await fetch(`${API_URL}/search`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,filters,limit:10})});
+        const results = await r.json();
+        document.getElementById('results').innerHTML = results.length?results.map((r,i)=>renderResult(r,i)).join(''):'<div class="no-results">Sin resultados</div>';
+      } catch(e){ document.getElementById('results').innerHTML = `<div class="no-results">Error: ${e.message}</div>`; }
+      btn.disabled=false; btn.textContent='Buscar';
+    }
+    function renderResult(r,i) {
+      const inc = r.incident;
+      let html = `<div class="result-card"><div class="result-header" onclick="toggle(${i})"><div><div class="result-title">${inc.title||'Sin título'}</div><div class="result-meta"><span class="meta-tag ${inc.severity}">${inc.severity}</span><span class="meta-tag">${inc.category}</span><span class="meta-tag">${inc.incidentNumber}</span>${inc.client?`<span class="meta-tag">${inc.client}</span>`:''}</div></div><div class="result-score">Score: <strong>${(r.totalScore*100).toFixed(1)}%</strong></div></div><div class="result-body" id="res-${i}">${renderDetails(inc)}<div class="result-chunks"><h4 style="margin-bottom:12px;color:var(--text-secondary)">Fragmentos relevantes:</h4>${r.chunks.map(c=>`<div class="chunk"><div class="chunk-header"><span>Chunk</span><span class="chunk-score">${(c.score*100).toFixed(1)}%</span></div><div class="chunk-text">${c.text.substring(0,500)}${c.text.length>500?'...':''}</div></div>`).join('')}</div></div></div>`;
+      return html;
+    }
+    function renderDetails(inc) {
+      let h='<div class="info-grid">';
+      if(inc.incidentNumber) h+=`<div class="info-box"><h4>Nº Acta</h4><p>${inc.incidentNumber}</p></div>`;
+      if(inc.reference) h+=`<div class="info-box"><h4>Referencia</h4><p>${inc.reference}</p></div>`;
+      if(inc.client) h+=`<div class="info-box"><h4>Cliente</h4><p>${inc.client}</p></div>`;
+      if(inc.project) h+=`<div class="info-box"><h4>Proyecto</h4><p>${inc.project}</p></div>`;
+      if(inc.contract) h+=`<div class="info-box"><h4>Contrato</h4><p>${inc.contract}</p></div>`;
+      if(inc.detectedAt) h+=`<div class="info-box"><h4>Fecha</h4><p>${new Date(inc.detectedAt).toLocaleDateString()}</p></div>`;
+      if(inc.environment) h+=`<div class="info-box"><h4>Entorno</h4><p>${inc.environment}</p></div>`;
+      if(inc.subcategory) h+=`<div class="info-box"><h4>Subcategoría</h4><p>${inc.subcategory}</p></div>`;
+      h+='</div>';
+      if(inc.participants&&inc.participants.length){h+=`<div class="info-box" style="margin-bottom:16px"><h4>Participantes</h4><div class="participants-list">${inc.participants.map(p=>`<span class="participant">${p.name}${p.role?` (${p.role})`:''}</span>`).join('')}</div></div>`;}
+      if(inc.problemDescription) h+=`<div class="info-box" style="margin-bottom:16px"><h4>Problema</h4><p>${inc.problemDescription}</p></div>`;
+      if(inc.worksDone&&inc.worksDone.length){h+=`<div class="info-box" style="margin-bottom:16px"><h4>Trabajos Realizados</h4><div class="works-list">${inc.worksDone.slice(0,6).map(w=>`<div class="work-item">${w.date?`<div class="work-date">${w.date}</div>`:''}<div class="work-desc">${w.description}</div></div>`).join('')}</div></div>`;}
+      if(inc.hoursSummary){const hs=inc.hoursSummary;h+=`<div class="info-box" style="margin-bottom:16px"><h4>Horas</h4><div class="hours-grid">${hs.normal?`<div class="hour-item"><div class="hour-value">${hs.normal}</div><div class="hour-label">Normales</div></div>`:''}${hs.extended?`<div class="hour-item"><div class="hour-value">${hs.extended}</div><div class="hour-label">Ext.</div></div>`:''}${hs.night?`<div class="hour-item"><div class="hour-value">${hs.night}</div><div class="hour-label">Noct.</div></div>`:''}${hs.total?`<div class="hour-item"><div class="hour-value">${hs.total}</div><div class="hour-label">Total</div></div>`:''}</div></div>`;}
+      if(inc.rootCause) h+=`<div class="info-box" style="margin-bottom:16px"><h4>Causa Raíz</h4><p>${inc.rootCause}</p></div>`;
+      if(inc.preventiveActions&&inc.preventiveActions.length) h+=`<div class="info-box" style="margin-bottom:16px"><h4>Acciones Preventivas</h4><ul style="margin-left:20px">${inc.preventiveActions.slice(0,5).map(a=>`<li style="margin-bottom:4px">${a}</li>`).join('')}</ul></div>`;
+      if(inc.affectedSystems&&inc.affectedSystems.length) h+=`<div class="info-box" style="margin-bottom:16px"><h4>Sistemas</h4><p>${inc.affectedSystems.join(', ')}</p></div>`;
+      if(inc.billingInfo) h+=`<div class="info-box" style="margin-bottom:16px"><h4>Facturación</h4><p>${inc.billingInfo}</p></div>`;
+      return h;
+    }
+    function toggle(i){document.getElementById(`res-${i}`).classList.toggle('open');}
+    async function loadIncidents(){
+      const l=document.getElementById('incidentsList');
+      l.innerHTML='<div class="loading">Cargando...</div>';
+      try{const r=await fetch(`${API_URL}/incidents`);const incs=await r.json();l.innerHTML=incs.length?incs.map(inc=>`<div class="incident-card" onclick="this.nextElementSibling.classList.toggle('open')"><div class="result-title">${inc.title||'Sin título'}</div><div class="result-meta" style="margin-top:8px"><span class="meta-tag ${inc.severity}">${inc.severity}</span><span class="meta-tag">${inc.category}</span><span class="meta-tag">${inc.incidentNumber}</span>${inc.client?`<span class="meta-tag">${inc.client}</span>`:''}</div></div><div class="result-body">${renderDetails(inc)}</div>`).join(''):'<div class="empty-state"><h3>No hay actas</h3><p>Sube PDFs</p></div>';}catch(e){l.innerHTML=`<div class="no-results">Error: ${e.message}</div>`;}
+    }
+    async function uploadFile(f){try{const r=await fetch(`${API_URL}/incidents/ingest-pdf`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filePath:`./${f.name}`})});if(r.ok){loadStats();alert(`✅ ${f.name}`);}else{alert(`❌ ${f.name}`);}}catch(e){alert(`Error: ${e.message}`);}}
+    document.getElementById('searchBtn').onclick=search;
+    document.getElementById('searchInput').onkeypress=e=>{if(e.key==='Enter')search()};
+    document.querySelectorAll('.tab').forEach(t=>{t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');document.querySelectorAll('.tab-content').forEach(x=>x.style.display='none');document.getElementById(t.dataset.tab+'-tab').style.display='block';if(t.dataset.tab==='incidents')loadIncidents();}});
+    document.getElementById('uploadZone').onclick=()=>document.getElementById('fileInput').click();
+    document.getElementById('fileInput').onchange=e=>{Array.from(e.target.files).forEach(uploadFile)};
+    loadStats();
+  </script>
+</body>
+</html>

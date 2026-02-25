@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+supabase/
+*.exe
+data/
+nul
+server_output.log
+server_debug.log
+.DS_Store
+*.pdf
+rag-frontend/node_modules/
+rag-frontend/dist/
