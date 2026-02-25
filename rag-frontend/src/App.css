@@ -562,6 +562,89 @@
   word-break: break-word;
 }
 
+/* Markdown rendering styles */
+.message-text .md-h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem 0;
+}
+
+.message-text .md-h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 1rem 0 0.5rem 0;
+}
+
+.message-text .md-h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0.75rem 0 0.5rem 0;
+}
+
+.message-text .md-p {
+  margin: 0 0 0.75rem 0;
+}
+
+.message-text .md-p:last-child {
+  margin-bottom: 0;
+}
+
+.message-text .md-strong {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.message-text .md-ul,
+.message-text .md-ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.message-text .md-li {
+  margin: 0.25rem 0;
+}
+
+.message-text .table-wrapper {
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.message-text .markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.message-text .markdown-table th,
+.message-text .markdown-table td {
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.message-text .markdown-table th {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message-text .markdown-table td {
+  color: var(--text-secondary);
+}
+
+.message-text .markdown-table tr:last-child td {
+  border-bottom: none;
+}
+
+.message-text .markdown-table tr:hover td {
+  background: rgba(99, 102, 241, 0.04);
+}
+
 .message-sources {
   margin-top: 1rem;
   padding-top: 0.75rem;

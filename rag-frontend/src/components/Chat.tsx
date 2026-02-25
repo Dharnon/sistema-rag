@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { 
   Send, 
   Bot, 
@@ -131,7 +132,28 @@ export function Chat({ messages, onSendMessage, loading, onNewChat }: ChatProps)
               {message.role === 'user' ? <User size={20} /> : <Bot size={20} />}
             </div>
             <div className="message-content">
-              <div className="message-text">{message.content}</div>
+              <div className="message-text">
+                <ReactMarkdown
+                  components={{
+                    table: ({ children }) => (
+                      <div className="table-wrapper">
+                        <table className="markdown-table">{children}</table>
+                      </div>
+                    ),
+                    h1: ({ children }) => <h3 className="md-h1">{children}</h3>,
+                    h2: ({ children }) => <h4 className="md-h2">{children}</h4>,
+                    h3: ({ children }) => <h5 className="md-h3">{children}</h5>,
+                    p: ({ children }) => <p className="md-p">{children}</p>,
+                    ul: ({ children }) => <ul className="md-ul">{children}</ul>,
+                    ol: ({ children }) => <ol className="md-ol">{children}</ol>,
+                    li: ({ children }) => <li className="md-li">{children}</li>,
+                    strong: ({ children }) => <strong className="md-strong">{children}</strong>,
+                    em: ({ children }) => <em className="md-em">{children}</em>,
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
+              </div>
               
               {message.sources && message.sources.length > 0 && (
                 <div className="message-sources">
