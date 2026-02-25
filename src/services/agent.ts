@@ -190,23 +190,72 @@ export class AgentService {
       
       let answer = rawAnswer;
       
-      // Simple think block removal - only if there's a clear pattern
-      // Look for "El usuario pregunta... Debo responder" pattern and take everything AFTER it
-      const thinkMatch = answer.match(/(?:El usuario pregunta|Basándome en|According to)[\s\S]{10,300}?(?:responder|responder\.|Debo responder|answer)/i);
-      if (thinkMatch && thinkMatch.index !== undefined && thinkMatch.index < 100) {
-        const afterThink = answer.substring(thinkMatch.index + thinkMatch[0].length);
-        // Make sure we have enough content after
-        if (afterThink.length > 30) {
-          answer = afterThink.trim();
-        }
+      // Enhanced think block removal - remove all thinking patterns
+      const thinkPatterns = [
+        // Spanish patterns
+        /Debo (?:calcular|responder|analizar|ver|revisar)[\s\S]{0,200}?(?=\n\n|Respuesta|Información)/gi,
+        /Voy a (?:responder|calcular|analizar)[\s\S]{0,100}?(?=\n\n|Primero|La)/gi,
+        /Vamos a (?:ver|analizar|calcular)[\s\S]{0,100}?(?=\n\n|Primero)/gi,
+        /Basándome en[\s\S]{0,150}?(?=\n\n|Por lo|Total)/gi,
+        /Calculando[\s\S]{0,100}?(?=\n\n|El)/gi,
+        /Primero[\s\S]{0,100}?(?=\n\n|Segundo|Tercero)/gi,
+        /Según los datos[\s\S]{0,100}?(?=\n\n|El)/gi,
+        /Revisando la información[\s\S]{0,100}?(?=\n\n|El)/gi,
+        /Entiendo que[\s\S]{0,100}?(?=\n\n|El)/gi,
+        /Para responder[\s\S]{0,100}?(?=\n\n|El)/gi,
+        /El usuario pregunta[\s\S]{0,200}?(?:responder|respuesta)/gi,
+        // English patterns
+        /Let me (?:calculate|analyze|check|see)[\s\S]{0,150}?(?=\n\n|First|The)/gi,
+        /Based on (?:the |)[\s\S]{0,150}?(?=\n\n|Total|According)/gi,
+        /I need to[\s\S]{0,100}?(?=\n\n|First)/gi,
+        /Thinking process[\s\S]{0,200}?Answer/gi,
+      ];
+      
+      for (const pattern of thinkPatterns) {
+        answer = answer.replace(pattern, '');
       }
       
-      // Pattern 2: If starts with numbers or common thinking patterns, skip them
-      if (answer.match(/^[\n\s]*(?:\d+[\.\)]\s*)?El usuario pregunta|^[\n\s]*\d+[-\.]\s*$/m)) {
-        // Find first actual paragraph starting with capital letter after a newline
-        const firstPara = answer.match(/\n\n([A-Z][^.!?]{20,})/);
-        if (firstPara && firstPara.index !== undefined) {
-          answer = firstPara[1].trim();
+      // Remove lines that are just thinking artifacts
+      const lines = answer.split('\n');
+      const cleanLines: string[] = [];
+      let skipCurrent = false;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        // Skip empty lines
+        if (!line) {
+          cleanLines.push(line);
+          continue;
+        }
+        
+        // Skip lines that are clearly thinking
+        const skipPatterns = [
+          /^Debo/i, /^Voy a/i, /^Vamos a/i, /^Calculando/i,
+          /^Primero que/i, /^Según/i, /^Revisando/i, /^Entiendo/i,
+          /^Para responder/i, /^Basándome/i, /^El usuario/i,
+          /^Let me/i, /^Based on/i, /^I need to/i,
+          /^(?:Yes|No),?\s*(?:I|let|this|here)/i,
+          /^\d+\.\s*(?:I|let|this|here)/i,
+        ];
+        
+        const shouldSkip = skipPatterns.some(p => p.test(line));
+        
+        // Also skip if line is too short and looks like artifact
+        if (shouldSkip || (line.length < 10 && line.match(/^(?:debo|voy|calculando|let|yes|no)/i))) {
+          continue;
+        }
+        
+        cleanLines.push(lines[i]);
+      }
+      
+      answer = cleanLines.join('\n').trim();
+      
+      // If answer is too short or looks wrong, try to find first real paragraph
+      if (answer.length < 50 || answer.match(/^(?:deb|yes|no|let)/i)) {
+        const firstParagraph = answer.match(/(?:\n\n|^)([A-Z][^.!?\n]{20,})/);
+        if (firstParagraph) {
+          answer = firstParagraph[1].trim();
         }
       }
       
@@ -245,17 +294,44 @@ export class AgentService {
       }
       context += '\n\n';
       
-      // Include hours in detail
+      // Include hours in detail - VERY IMPORTANT for the model to understand
       if (inc.hoursSummary) {
         const hs = inc.hoursSummary;
-        context += `**Horas:**\n`;
-        if (hs.normal) context += `- Normal: ${hs.normal}h\n`;
-        if (hs.night) context += `- Nocturno: ${hs.night}h\n`;
-        if (hs.extended) context += `- Extendido: ${hs.extended}h\n`;
-        if (hs.travel) context += `- Desplazamiento: ${hs.travel}h\n`;
-        if (hs.total) context += `- **TOTAL: ${hs.total}h**\n`;
+        context += `**HORAS DE TRABAJO:**\n`;
+        context += `- Normal: ${hs.normal || 0} horas\n`;
+        if (hs.night) context += `- Nocturno: ${hs.night} horas\n`;
+        if (hs.extended) context += `- Extendido: ${hs.extended} horas\n`;
+        if (hs.travel) context += `- Desplazamiento: ${hs.travel} horas\n`;
+        if (hs.documentation) context += `- Documentación: ${hs.documentation} horas\n`;
+        if (hs.total) context += `- **TOTAL: ${hs.total} horas**\n`;
         if (hs.billingInfo) context += `- Facturación: ${hs.billingInfo}\n`;
         context += '\n';
+      }
+      
+      // Also search in description for hour patterns like "Trabajos planificados" which are hours
+      if (inc.description) {
+        const hourPatterns = [
+          /Trabajos planificados\s+(\d+(?:\s+\d+)*)/gi,
+          /Trabajos no planificados?\s+(\d+(?:\s+\d+)*)/gi,
+          /Desplaz\.?\s+(\d+(?:\s+\d+)*)/gi,
+          /(\d+)\s*horas?\s*(?:normal|nocturna|total)/gi,
+        ];
+        
+        const foundHours: string[] = [];
+        for (const pattern of hourPatterns) {
+          const matches = inc.description.matchAll(pattern);
+          for (const match of matches) {
+            foundHours.push(match[0]);
+          }
+        }
+        
+        if (foundHours.length > 0 && !inc.hoursSummary?.total) {
+          context += `**Horas encontradas en descripción:**\n`;
+          for (const h of foundHours) {
+            context += `- ${h}\n`;
+          }
+          context += '\n';
+        }
       }
       
       // Include participants
@@ -284,17 +360,34 @@ export class AgentService {
       context += '\n---\n\n';
     }
     
-    // Add summary table if multiple results
+    // Add summary table if multiple results - VERY IMPORTANT for totals
     if (searchResults.length > 1) {
-      context += '## Resumen de Datos Extraídos\n\n';
-      context += '| Acta | Cliente | Horas Totales | Categoría |\n';
-      context += '|------|---------|---------------|----------|\n';
+      context += '## RESUMEN DE HORAS\n\n';
+      context += '| Acta | Cliente | Horas Normales | Horas Nocturnas | Horas Desplazamiento | **TOTAL** |\n';
+      context += '|------|---------|----------------|-----------------|---------------------|------------|\n';
+      
+      let grandTotal = 0;
+      let normalTotal = 0;
+      let nightTotal = 0;
+      let travelTotal = 0;
       
       for (const r of searchResults) {
         const inc = r.incident;
-        const hours = inc.hoursSummary?.total || inc.hoursSummary?.normal || '-';
-        context += `| ${inc.incidentNumber} | ${inc.client || '-'} | ${hours}h | ${inc.category || '-'} |\n`;
+        const hs = inc.hoursSummary;
+        const normal = hs?.normal || '-';
+        const night = hs?.night || '-';
+        const travel = hs?.travel || '-';
+        const total = hs?.total || '-';
+        
+        context += `| ${inc.incidentNumber} | ${inc.client || '-'} | ${normal} | ${night} | ${travel} | **${total}** |\n`;
+        
+        if (hs?.total) grandTotal += hs.total;
+        if (hs?.normal) normalTotal += hs.normal;
+        if (hs?.night) nightTotal += hs.night;
+        if (hs?.travel) travelTotal += hs.travel;
       }
+      
+      context += `\n**TOTAL GENERAL: ${grandTotal} horas** (${normalTotal} normales + ${nightTotal} nocturnas + ${travelTotal} desplazamiento)\n`;
     }
     
     return context;
@@ -303,18 +396,33 @@ export class AgentService {
   private buildUserMessage(query: string, context: string): string {
     return `Pregunta del usuario: ${query}
 
-A continuación tienes el contexto extraído de las actas de HEXA Ingenieros:
+A continuación tienes el contexto extraído de las actas de HEXA Ingenieros con TODOS los datos de horas:
 
 ${context}
 
-INSTRUCCIONES PARA RESPONDER:
-1. Lee cuidadosamente los datos de arriba
-2. Si el usuario pregunta por HORAS, calcula y muestra los TOTALES EXACTOS
-3. Cita siempre el número de acta (ej: AC100554-I10) para cada dato
-4. Si hay varios actas, haz un resumen conjunto al final
-5. Si no hay información en el contexto para responder, dilo honestamente
+===================================================
+INSTRUCCIONES IMPORTANTES:
+1. El contexto ya incluye una TABLA DE RESUMEN con los totales - úsala
+2. Si preguntas por HORAS, muestra una tabla markdown con los totales por acta
+3. Calcula el TOTAL GENERAL sumando todas las horas
+4. Cita siempre el número de acta (ej: AC100554-I10) para cada dato
+5. NO necesitas "calcular mentalmente" - el contexto ya tiene los totales
+6. NUNCA digas "Debo calcular", "Voy a ver", etc. - simplemente responde
+7. Usa tablas markdown para mostrar datos
 
-Responde en español:`;
+EJEMPLO de respuesta correcta:
+---
+## Total de Horas
+
+| Acta | Cliente | Horas Totales |
+|------|---------|---------------|
+| AC100554-I10 | Laboratorios Normon | 21h |
+| AC220H2001-A | PPG Ibérica | 106h |
+
+**Total: 127 horas**
+---
+
+Responde ahora:`;
   }
 
   private generateFollowUpQuestions(query: string, results: SearchResult[]): string[] {
