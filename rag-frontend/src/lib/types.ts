@@ -118,4 +118,42 @@ export interface AgentResponse {
   answer: string;
   sources: AgentSource[];
   suggestedFollowUp?: string[];
+  conversationId?: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: any;
+  createdAt: string;
+}
+
+export interface EnhancedStats {
+  totalIncidents: number;
+  totalChunks: number;
+  totalHours: number;
+  normalHours: number;
+  nightHours: number;
+  extendedHours: number;
+  bySeverity: Record<string, number>;
+  byStatus: Record<string, number>;
+  byCategory: Record<string, number>;
+  byClient: Record<string, number>;
+  topParticipants: Array<{ name: string; count: number }>;
+  recentActivity: Array<{
+    id: string;
+    incidentNumber: string;
+    client: string;
+    category: string;
+    detectedAt: string;
+  }>;
 }

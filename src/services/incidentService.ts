@@ -9,7 +9,7 @@ export class IncidentService {
   private incidents: Map<string, IncidentReport> = new Map();
   private pdfParser: PdfParserService;
   private embeddingService: EmbeddingService;
-  private vectorStore: VectorStoreService;
+  public vectorStore: VectorStoreService;
   private textChunking: TextChunkingService;
 
   constructor() {
@@ -147,9 +147,67 @@ export class IncidentService {
     const incidents = this.getAllIncidents();
     const vectorCount = await this.vectorStore.getCollectionCount();
     
+    // Calculate total hours
+    let totalHours = 0;
+    let normalHours = 0;
+    let nightHours = 0;
+    let extendedHours = 0;
+    
+    for (const inc of incidents) {
+      if (inc.hoursSummary) {
+        totalHours += inc.hoursSummary.normal || 0;
+        totalHours += inc.hoursSummary.night || 0;
+        totalHours += inc.hoursSummary.extended || 0;
+        normalHours += inc.hoursSummary.normal || 0;
+        nightHours += inc.hoursSummary.night || 0;
+        extendedHours += inc.hoursSummary.extended || 0;
+      }
+    }
+    
+    // Get top participants
+    const participantCounts: Record<string, number> = {};
+    for (const inc of incidents) {
+      if (inc.participants && Array.isArray(inc.participants)) {
+        for (const p of inc.participants) {
+          const name = typeof p === 'string' ? p : (p as any).name;
+          if (name && typeof name === 'string') {
+            participantCounts[name] = (participantCounts[name] || 0) + 1;
+          }
+        }
+      }
+    }
+    
+    const topParticipants = Object.entries(participantCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+    
+    // Recent activity
+    const recentIncidents = [...incidents]
+      .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
+      .slice(0, 5)
+      .map(inc => ({
+        id: inc.id,
+        incidentNumber: inc.incidentNumber,
+        client: inc.client,
+        category: inc.category,
+        detectedAt: inc.detectedAt,
+      }));
+    
+    // By client
+    const byClient: Record<string, number> = {};
+    for (const inc of incidents) {
+      const client = inc.client || 'Sin cliente';
+      byClient[client] = (byClient[client] || 0) + 1;
+    }
+    
     return {
       totalIncidents: incidents.length,
       totalChunks: vectorCount,
+      totalHours,
+      normalHours,
+      nightHours,
+      extendedHours,
       bySeverity: incidents.reduce((acc, inc) => {
         acc[inc.severity] = (acc[inc.severity] || 0) + 1;
         return acc;
@@ -162,6 +220,9 @@ export class IncidentService {
         acc[inc.category] = (acc[inc.category] || 0) + 1;
         return acc;
       }, {} as Record<string, number>),
+      byClient,
+      topParticipants,
+      recentActivity: recentIncidents,
     };
   }
 

@@ -68,7 +68,8 @@ export class AgentService {
   async generateResponse(
     query: string,
     searchResults: SearchResult[],
-    detailed: boolean = false
+    detailed: boolean = false,
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
   ): Promise<AgentResponse> {
     // Guard against invalid input
     if (!searchResults) {
@@ -92,13 +93,24 @@ export class AgentService {
     const context = this.buildContext(resultsArray);
     const systemPrompt = detailed ? SYSTEM_PROMPT_DETAILED : SYSTEM_PROMPT_SHORT;
     
+    // Build messages including conversation history
     const messages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
-      { 
-        role: 'user', 
-        content: this.buildUserMessage(query, context) 
-      },
     ];
+
+    // Add conversation history (last 6 messages = 3 exchanges)
+    for (const msg of conversationHistory.slice(-6)) {
+      messages.push({
+        role: msg.role,
+        content: msg.content,
+      });
+    }
+
+    // Add current query
+    messages.push({ 
+      role: 'user', 
+      content: this.buildUserMessage(query, context) 
+    });
 
     try {
       const response = await fetch(`${config.minimax.baseUrl}/chat/completions`, {

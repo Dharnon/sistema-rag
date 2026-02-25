@@ -132,6 +132,32 @@ export class VectorStoreService {
         CREATE INDEX IF NOT EXISTS idx_incident_chunks_incident_id ON incident_chunks(incident_id)
       `);
       
+      // Conversations table
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS conversations (
+          id VARCHAR(255) PRIMARY KEY,
+          title VARCHAR(500) DEFAULT 'Nueva conversación',
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      
+      // Messages table
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS messages (
+          id VARCHAR(255) PRIMARY KEY,
+          conversation_id VARCHAR(255) REFERENCES conversations(id) ON DELETE CASCADE,
+          role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant')),
+          content TEXT NOT NULL,
+          sources JSONB,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)
+      `);
+      
       console.log('PostgreSQL with pgvector initialized');
     } finally {
       client.release();

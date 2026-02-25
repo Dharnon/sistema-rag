@@ -7,6 +7,7 @@ import { join } from 'path';
 import { config } from './config/index.js';
 import { IncidentService } from './services/incidentService.js';
 import { AgentService } from './services/agent.js';
+import { ConversationService } from './services/conversationService.js';
 
 const fastify = Fastify({
   logger: true,
@@ -14,6 +15,7 @@ const fastify = Fastify({
 
 const incidentService = new IncidentService();
 const agentService = new AgentService();
+const conversationService = new ConversationService(incidentService.vectorStore);
 
 async function start() {
   await fastify.register(cors);
@@ -98,30 +100,103 @@ async function start() {
     return results;
   });
 
-  // AI Agent endpoint for conversational responses
+  fastify.get('/stats', async () => {
+    return incidentService.getStats();
+  });
+
+  // Conversation endpoints
+  fastify.get('/conversations', async () => {
+    return conversationService.getAllConversations();
+  });
+
+  fastify.post('/conversations', async (request: any, reply) => {
+    const { title } = request.body || {};
+    const conversation = await conversationService.createConversation(title);
+    return reply.code(201).send(conversation);
+  });
+
+  fastify.get('/conversations/:id', async (request: any) => {
+    const conversation = await conversationService.getConversation(request.params.id);
+    if (!conversation) {
+      throw new Error('Conversation not found');
+    }
+    return conversation;
+  });
+
+  fastify.delete('/conversations/:id', async (request: any) => {
+    await conversationService.deleteConversation(request.params.id);
+    return { success: true };
+  });
+
+  fastify.get('/conversations/:id/messages', async (request: any) => {
+    return conversationService.getMessages(request.params.id);
+  });
+
+  fastify.put('/conversations/:id', async (request: any) => {
+    const { title } = request.body;
+    await conversationService.updateConversationTitle(request.params.id, title);
+    return { success: true };
+  });
+
+  // AI Agent endpoint for conversational responses with conversation context
   fastify.post('/agent/query', async (request: any) => {
     try {
-      const { query, detailed = false, limit = 5 } = request.body;
+      const { query, detailed = false, limit = 5, conversationId } = request.body;
       
       if (!query) {
         throw new Error('query is required');
       }
       
+      // Get conversation history if provided
+      let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+      let currentConversationId = conversationId;
+
+      if (conversationId) {
+        const recentMessages = await conversationService.getRecentMessages(conversationId, 6);
+        conversationHistory = recentMessages.map(m => ({
+          role: m.role,
+          content: m.content,
+        }));
+      } else if (query) {
+        // Create new conversation if none provided
+        const newConversation = await conversationService.createConversation(
+          query.substring(0, 50) + (query.length > 50 ? '...' : '')
+        );
+        currentConversationId = newConversation.id;
+      }
+      
       // Search for relevant documents
       const searchResults = await incidentService.search({ query, limit });
       
-      // Generate AI response
-      const response = await agentService.generateResponse(query, searchResults, detailed);
+      // Generate AI response with conversation history
+      const response = await agentService.generateResponse(
+        query, 
+        searchResults, 
+        detailed,
+        conversationHistory
+      );
+
+      // Save user message
+      if (currentConversationId) {
+        await conversationService.addMessage(currentConversationId, 'user', query);
+        
+        // Save assistant response
+        await conversationService.addMessage(
+          currentConversationId, 
+          'assistant', 
+          response.answer,
+          response.sources
+        );
+      }
       
-      return response;
+      return {
+        ...response,
+        conversationId: currentConversationId,
+      };
     } catch (err: any) {
       console.error('Agent endpoint error:', err);
       throw err;
     }
-  });
-
-  fastify.get('/stats', async () => {
-    return incidentService.getStats();
   });
 
   try {

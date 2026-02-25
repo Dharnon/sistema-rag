@@ -8,7 +8,8 @@ import {
   ChevronUp,
   Copy,
   Check,
-  Sparkles
+  Sparkles,
+  Plus
 } from 'lucide-react';
 import type { Message } from '../lib/types';
 
@@ -16,9 +17,10 @@ interface ChatProps {
   messages: Message[];
   onSendMessage: (message: string) => void;
   loading: boolean;
+  onNewChat?: () => void;
 }
 
-export function Chat({ messages, onSendMessage, loading }: ChatProps) {
+export function Chat({ messages, onSendMessage, loading, onNewChat }: ChatProps) {
   const [input, setInput] = useState('');
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -86,6 +88,14 @@ export function Chat({ messages, onSendMessage, loading }: ChatProps) {
 
   return (
     <div className="chat-container">
+      {onNewChat && messages.length > 0 && (
+        <div className="chat-header">
+          <button className="new-chat-btn" onClick={onNewChat}>
+            <Plus size={16} />
+            Nueva conversación
+          </button>
+        </div>
+      )}
       <div className="chat-messages">
         {messages.length === 0 && (
           <div className="chat-empty">
