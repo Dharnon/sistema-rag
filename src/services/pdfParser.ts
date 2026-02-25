@@ -102,9 +102,10 @@ export class PdfParserService {
 
   private extractClient(text: string): string | undefined {
     // Pattern: Cliente: NAME (followed by Proyecto or Trabajo or end of line)
+    // Be careful not to stop at P in "PPG" - need longer lookahead
     const patterns = [
-      /Cliente:\s*([^P\n]+?)(?=\s*Proyecto|\s*Trabajo|\s*Contrato|$)/i,
-      /CLIENTE:\s*([^P\n]+?)(?=\s*Proyecto|\s*Trabajo|\s*Contrato|$)/i,
+      /Cliente:\s*([^\n]+?)(?=\s*Proyecto:|\s*Trabajo:|\s*Contrato:|$)/i,
+      /CLIENTE:\s*([^\n]+?)(?=\s*Proyecto:|\s*Trabajo:|\s*Contrato:|$)/i,
     ];
     
     for (const pattern of patterns) {
@@ -112,6 +113,7 @@ export class PdfParserService {
       if (match && match[1]) {
         let client = match[1]
           .replace(/:/g, '')
+          .replace(/^P{1,2}G\s+/i, 'PPG ') // Fix "PG Valencia" -> "PPG Valencia"
           .trim();
         if (client.length > 2 && client.length < 100) {
           return client;
@@ -124,17 +126,20 @@ export class PdfParserService {
 
   private extractProject(text: string): string | undefined {
     // Pattern: Proyecto: NAME (followed by Trabajo or Contrato or end of line)
+    // Handle both single/double spaces and cases where project might be empty
     const patterns = [
-      /Proyecto:\s*([^T\n]+?)(?=\s*Trabajo|\s*Contrato|$)/i,
-      /PROYECTO:\s*([^T\n]+?)(?=\s*Trabajo|\s*Contrato|$)/i,
+      /Proyecto:\s*(.+?)(?=\s*Trabajo|\s*Contrato|$)/i,
+      /PROYECTO:\s*(.+?)(?=\s*Trabajo|\s*Contrato|$)/i,
+      /Proyecto:\s*([^\n]+)/i,
     ];
     
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match && match[1]) {
         let project = match[1].trim();
-        if (project.length > 2 && project.length < 150) {
-          return project;
+        // If project is just spaces or empty-looking, skip it
+        if (project.length > 2 && !project.match(/^\s*Trabajo/)) {
+          return project.substring(0, 150);
         }
       }
     }
