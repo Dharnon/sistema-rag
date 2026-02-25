@@ -420,34 +420,46 @@ export class PdfParserService {
       trips: 0,
     };
 
-    // Find the hours section
-    const hoursSectionMatch = text.match(/(?:RESUMEN\s*DE\s*HORAS|HORAS\s*POR\s*FACTURAR|TOTAL)[\s\S]{0,2000}/i);
-    if (!hoursSectionMatch) return undefined;
+    // Find the hours section - look for multiple possible patterns
+    const hoursSectionPatterns = [
+      /(?:RESUMEN\s*DE\s*HORAS|HORAS\s*POR\s*FACTURAR|TOTAL\s*DE\s*HORAS|HORAS\s*NORMALES)[\s\S]{0,3000}/i,
+      /Horas[\s\n]*Normales[\s\S]{0,1000}/i,
+      /Total\s+de\s+horas[\s\S]{0,500}/i,
+    ];
     
-    const section = hoursSectionMatch[0];
+    let section = '';
+    for (const pattern of hoursSectionPatterns) {
+      const match = text.match(pattern);
+      if (match && match[0].length > 50) {
+        section = match[0];
+        break;
+      }
+    }
     
-    // Extract day columns (M 09/07, S 13/07, L 15/07, etc.)
+    if (!section) {
+      // Try finding any section with numeric hours
+      const allHoursMatch = text.match(/(\d+)\s*horas?\s*(?:normal|total)/i);
+      if (allHoursMatch) {
+        result.total = parseInt(allHoursMatch[1]);
+        result.normal = result.total;
+        return result.total > 0 ? result : undefined;
+      }
+      return undefined;
+    }
+    
+    // Method 1: Day-based format (AC100554-I10 style: "Horario Normal 1 0 2 8 8 19")
     const dayHeaderMatch = section.match(/([MLXJVSND]?\s*\d{1,2}\/\d{2})/gi);
-    if (dayHeaderMatch) {
+    if (dayHeaderMatch && dayHeaderMatch.length > 0) {
       const days = dayHeaderMatch.map(d => d.trim());
-      // Find the row totals for each day type
       const lines = section.split('\n');
       
       for (const line of lines) {
         const lowerLine = line.toLowerCase();
         
-        // Match patterns like "Horario Normal 1 0 2 8 8 19"
-        if (lowerLine.includes('horario normal')) {
+        if (lowerLine.includes('horario normal') || lowerLine.includes('normal')) {
           const nums = line.match(/\d+/g);
           if (nums && nums.length > 0) {
-            // Last number is the total
             result.normal = parseInt(nums[nums.length - 1]) || 0;
-            // Map to days if we have enough numbers
-            days.forEach((day, i) => {
-              if (nums[i] && i < nums.length - 1) {
-                result.byDay![day] = (result.byDay![day] || 0) + parseInt(nums[i]);
-              }
-            });
           }
         }
         
@@ -465,55 +477,107 @@ export class PdfParserService {
           }
         }
         
-        if (lowerLine.includes('desplazamiento normal')) {
+        if (lowerLine.includes('desplazamiento')) {
           const nums = line.match(/\d+/g);
           if (nums && nums.length > 0) {
             result.travel = parseInt(nums[nums.length - 1]) || 0;
           }
         }
-        
-        if (lowerLine.includes('desplazamiento extendido')) {
-          const nums = line.match(/\d+/g);
-          if (nums && nums.length > 0) {
-            result.travel = (result.travel || 0) + parseInt(nums[nums.length - 1]);
+      }
+    }
+    
+    // Method 2: Participant-based format (AC220H2001-A style: "CFP67000", "Total1060.500")
+    // This format has lines like: NameNumberNumber (no spaces)
+    const participantLines = section.match(/([A-Z]{2,5})(\d{2,5})(\d{3})/g);
+    if (participantLines) {
+      let participantTotal = 0;
+      for (const pLine of participantLines) {
+        const pMatch = pLine.match(/([A-Z]{2,5})(\d{2,5})(\d{3})/);
+        if (pMatch) {
+          const hours = parseInt(pMatch[2]) || 0;
+          participantTotal += hours;
+        }
+      }
+      if (participantTotal > 0) {
+        result.normal = participantTotal;
+      }
+    }
+    
+    // Look for specific patterns for total
+    // Also search in the full text for explicit hour mentions like "Total de horas invertidas (CFP): 67 horas"
+    const explicitHours = text.match(/Total\s+de\s+horas\s+invertidas[^:]*:\s*(\d+)\s*horas?/gi);
+    if (explicitHours && explicitHours.length > 0) {
+      let sum = 0;
+      for (const hourText of explicitHours) {
+        const hourMatch = hourText.match(/(\d+)\s*horas?/);
+        if (hourMatch) {
+          sum += parseInt(hourMatch[1]);
+        }
+      }
+      if (sum > 0 && (!result.total || result.total < sum)) {
+        result.total = sum;
+        result.normal = sum;
+      }
+    }
+    
+    // Pattern: "Total 106" or "Total106" or "TOTAL: 106" or "Total1060.500" (where 0.500 is displacement)
+    const totalPatterns = [
+      /Total[\s:.-]*(\d{2,5})[\s,.]*(\d{3})?/i,
+      /TOTAL[\s:.-]*(\d{2,5})[\s,.]*(\d{3})?/i,
+      /total[\s:.-]*(\d+[\.,]?\d*)\s*horas?/i,
+    ];
+    
+    for (const pattern of totalPatterns) {
+      const match = section.match(pattern);
+      if (match && match[1]) {
+        let total = 0;
+        const hours = parseInt(match[1]);
+        if (match[2]) {
+          // Format: 1060.500 -> 106 hours + 0.500 travel
+          // OR format: 1065 -> 106 hours + 5 travel
+          if (match[1].length >= 3 && match[2].length === 3) {
+            // Likely format: 1060.500 - split the first part
+            const displacement = parseFloat('0.' + match[2]);
+            total = hours + displacement;
+          } else {
+            total = parseFloat('0.' + match[2]);
+          }
+        } else {
+          // No decimal - could be "Total106" or "Total1065"
+          if (match[1].length > 3) {
+            // Format: 1065 -> 106 hours + 5 displacement
+            const displacement = parseInt(match[1].slice(-2));
+            const normalHours = parseInt(match[1].slice(0, -2));
+            total = normalHours + (displacement > 0 ? displacement : 0);
+          } else {
+            total = hours;
           }
         }
-        
-        if (lowerLine.includes('documentación') || lowerLine.includes('documentacion')) {
-          const nums = line.match(/\d+/g);
-          if (nums && nums.length > 0) {
-            result.documentation = parseInt(nums[nums.length - 1]) || 0;
-          }
-        }
-        
-        if (lowerLine.includes('comida')) {
-          const nums = line.match(/\d+/g);
-          if (nums && nums.length > 0) {
-            result.meals = parseInt(nums[nums.length - 1]) || 0;
-          }
-        }
-        
-        if (lowerLine.includes('viaje')) {
-          const nums = line.match(/\d+/g);
-          if (nums && nums.length > 0) {
-            result.trips = parseInt(nums[nums.length - 1]) || 0;
-          }
+        if (total > 0) {
+          result.total = total;
+          break;
         }
       }
     }
-
-    // Extract total hours
-    const totalMatch = section.match(/(?:total)[\s:.-]*(\d+[\.,]?\d*)/i);
-    if (totalMatch) {
-      result.total = parseFloat(totalMatch[1].replace(',', '.'));
-    } else {
+    
+    // If no total found, sum up
+    if (!result.total || result.total === 0) {
       result.total = (result.normal || 0) + (result.extended || 0) + (result.night || 0);
     }
-
-    // Extract billing info
-    const billingMatch = text.match(/horas?\s*por\s*facturar[\s\S]{0,300}/i);
-    if (billingMatch) {
-      result.billingInfo = billingMatch[0].substring(0, 500);
+    
+    // Look for billing info in full text
+    const billingPatterns = [
+      /horas?\s*por\s*facturar[\s\S]{0,500}/i,
+      /(\d+)\s*horas?\s*normal/i,
+      /facturaci[óó]n[\s\S]{0,200}/i,
+    ];
+    
+    for (const pattern of billingPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.billingInfo = match[0].substring(0, 500);
+        break;
+      }
     }
 
     // Only return if we found some hours
@@ -521,12 +585,16 @@ export class PdfParserService {
       return result;
     }
     
-    // Try simpler extraction if detailed fails
-    const simpleMatch = text.match(/total[\s:.-]*(\d+[\.,]?\d*)\s*horas?/i);
-    if (simpleMatch) {
-      result.total = parseFloat(simpleMatch[1].replace(',', '.'));
-      result.normal = result.total;
-      return result;
+    // Final fallback: look for any hour mentions
+    const hourMentions = text.match(/(\d+)\s*horas?\s*(?:normal|nocturna|total)/gi);
+    if (hourMentions && hourMentions.length > 0) {
+      const hours = hourMentions.map(h => parseInt(h.match(/\d+/)?.[0] || '0'));
+      const maxHours = Math.max(...hours);
+      if (maxHours > 0) {
+        result.total = maxHours;
+        result.normal = maxHours;
+        return result;
+      }
     }
     
     return undefined;

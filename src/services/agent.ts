@@ -30,31 +30,75 @@ export interface AgentResponse {
 
 const SYSTEM_PROMPT_SHORT = `Eres un asistente experto en análisis de actas de trabajo de HEXA Ingenieros.
 
-Instrucciones:
-1. Responde en español de forma clara y concisa
-2. Máximo 2-3 párrafos cortos
-3. Si no hay información suficiente, dilo claramente
-4. Cita el número de acta cuando menciones información específica
+Eres muy detallado cuando se trata de extraer información sobre:
+- Horas de trabajo (horario normal, nocturno, extendido, desplazamientos)
+- Detalles de proyectos y servicios realizados
+- Equipos técnicos intervenidos
+- Participantes en los trabajos
+- Información de facturación
 
-formatos:
+Instrucciones:
+1. Responde SIEMPRE en español
+2. Cuando se pregunte por horas, MUESTRA LOS NÚMEROS EXACTOS extraídos de los documentos
+3. Si hay varias fuentes, resume los totales por cliente o proyecto
+4. Si no hay información suficiente, dilo claramente
+5. Cita SIEMPRE el número de acta cuando menciones información específica
+
+Ejemplo de respuesta correcta para horas:
+"Según las actas analizadas:
+- AC100554-I10 (Laboratorios Normon): 19h normales + 2h nocturnas = 21h totales
+- AC220H2001-A (PPG Ibérica): 106.5h totales
+
+Total facturado: 127.5 horas"
+
+Formatos permitidos:
 - **negrita** para énfasis
 - Listas con •
-`;
+- Tablas simples si hay múltiples datos`;
 
 const SYSTEM_PROMPT_DETAILED = `Eres un asistente experto en análisis de actas de trabajo de HEXA Ingenieros.
 
-Instrucciones:
-1. Responde en español de forma detallada
-2. Estructura tu respuesta con secciones claras
-3. Incluye todos los detalles relevantes de los documentos
-4. Cita el número de acta cuando menciones información específica
-5. Si no hay información suficiente, dilo claramente
+Tu trabajo es extraer y resumir información técnica de las actas de trabajo. Cuando el usuario pregunta:
 
-formatos:
+1. Sobre HORAS: Muestra siempre los números exactos de horas extraídas
+   - Normal: X horas
+   - Nocturno: X horas  
+   - Extendido: X horas
+   - Desplazamiento: X horas
+   - TOTAL: X horas
+
+2. Sobre TRABAJOS/EQUIPOS: Lista los equipos específicos mencionados
+   - Válvulas: códigos como GJK07AA003, YS22824
+   - Bombas: PWS3, etc.
+   - Tanks: T1264, D10, etc.
+
+3. Sobre CLIENTES: Indica el nombre exacto del cliente
+
+4. Sobre PARTICIPANTES: Nombra a las personas involucradas
+
+Instrucciones obligatorias:
+- Responde en español
+- CITA el número de acta (ej: AC100554-I10) para cada dato que menciones
+- Si hay varias actas, haz un RESUMEN CONJUNTO al final
+- Si no hay datos, dilo honestamente
+
+Estructura recomendada para respuestas sobre horas:
+---
+## Resumen de Horas
+
+| Acta | Cliente | Normal | Noche | Total |
+|------|---------|--------|-------|-------|
+| AC100554-I10 | Laboratorios Normon | 19h | 2h | 21h |
+| AC220H2001-A | PPG Ibérica | 106.5h | - | 106.5h |
+
+**Total: 127.5 horas**
+---
+
+Formatos:
 - Encabezados ## para secciones
 - **negrita** para énfasis
-- Listas con • o números
-`;
+- Tablas markdown para datos numéricos
+- Listas con • para descripciones`;
 
 export class AgentService {
   private apiKey: string;
@@ -191,7 +235,7 @@ export class AgentService {
       const result = searchResults[i];
       const inc = result.incident;
       
-      context += `**Acta ${inc.incidentNumber}**`;
+      context += `## Acta ${inc.incidentNumber}`;
       if (inc.client) context += ` - ${inc.client}`;
       if (inc.detectedAt) {
         const date = new Date(inc.detectedAt).toLocaleDateString('es-ES', { 
@@ -199,39 +243,78 @@ export class AgentService {
         });
         context += ` (${date})`;
       }
-      context += '\n';
+      context += '\n\n';
       
-      // Include hours
+      // Include hours in detail
       if (inc.hoursSummary) {
-        const hours = [];
-        if (inc.hoursSummary.normal) hours.push(`${inc.hoursSummary.normal}h normal`);
-        if (inc.hoursSummary.night) hours.push(`${inc.hoursSummary.night}h nocturno`);
-        if (inc.hoursSummary.total) hours.push(`${inc.hoursSummary.total}h total`);
-        if (hours.length > 0) {
-          context += `Horas: ${hours.join(', ')}\n`;
-        }
+        const hs = inc.hoursSummary;
+        context += `**Horas:**\n`;
+        if (hs.normal) context += `- Normal: ${hs.normal}h\n`;
+        if (hs.night) context += `- Nocturno: ${hs.night}h\n`;
+        if (hs.extended) context += `- Extendido: ${hs.extended}h\n`;
+        if (hs.travel) context += `- Desplazamiento: ${hs.travel}h\n`;
+        if (hs.total) context += `- **TOTAL: ${hs.total}h**\n`;
+        if (hs.billingInfo) context += `- Facturación: ${hs.billingInfo}\n`;
+        context += '\n';
       }
       
-      // Include most relevant chunk only (shorter)
+      // Include participants
+      if (inc.participants && Array.isArray(inc.participants) && inc.participants.length > 0) {
+        const names = inc.participants.map((p: any) => p.name || p).join(', ');
+        context += `**Participantes:** ${names}\n\n`;
+      }
+      
+      // Include works done summary
+      if (inc.worksDone && Array.isArray(inc.worksDone) && inc.worksDone.length > 0) {
+        context += `**Trabajos realizados:**\n`;
+        for (const work of inc.worksDone.slice(0, 3)) {
+          const title = work.title || work.date || 'Trabajo';
+          context += `- ${title}: ${(work.description || '').substring(0, 100)}...\n`;
+        }
+        context += '\n';
+      }
+      
+      // Include relevant chunk
       if (result.chunks && result.chunks.length > 0) {
         const chunk = result.chunks[0];
-        const text = chunk.text.replace(/\[Sección: [^\]]+\]\n?/g, '').substring(0, 300);
-        context += `Extracto: ${text}...\n`;
+        const text = chunk.text.replace(/\[Sección: [^\]]+\]\n?/g, '').substring(0, 500);
+        context += `**Extracto relevante:**\n${text}...\n`;
       }
       
-      context += '\n';
+      context += '\n---\n\n';
+    }
+    
+    // Add summary table if multiple results
+    if (searchResults.length > 1) {
+      context += '## Resumen de Datos Extraídos\n\n';
+      context += '| Acta | Cliente | Horas Totales | Categoría |\n';
+      context += '|------|---------|---------------|----------|\n';
+      
+      for (const r of searchResults) {
+        const inc = r.incident;
+        const hours = inc.hoursSummary?.total || inc.hoursSummary?.normal || '-';
+        context += `| ${inc.incidentNumber} | ${inc.client || '-'} | ${hours}h | ${inc.category || '-'} |\n`;
+      }
     }
     
     return context;
   }
 
   private buildUserMessage(query: string, context: string): string {
-    return `Pregunta: ${query}
+    return `Pregunta del usuario: ${query}
 
-Contexto:
+A continuación tienes el contexto extraído de las actas de HEXA Ingenieros:
+
 ${context}
 
-Responde de forma concisa. Cita el número de acta cuando menciones información.`;
+INSTRUCCIONES PARA RESPONDER:
+1. Lee cuidadosamente los datos de arriba
+2. Si el usuario pregunta por HORAS, calcula y muestra los TOTALES EXACTOS
+3. Cita siempre el número de acta (ej: AC100554-I10) para cada dato
+4. Si hay varios actas, haz un resumen conjunto al final
+5. Si no hay información en el contexto para responder, dilo honestamente
+
+Responde en español:`;
   }
 
   private generateFollowUpQuestions(query: string, results: SearchResult[]): string[] {
