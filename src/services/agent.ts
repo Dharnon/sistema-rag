@@ -33,8 +33,9 @@ const SYSTEM_PROMPT_SHORT = `Eres un asistente experto en análisis de actas de 
 Eres muy detallado cuando se trata de extraer información sobre:
 - Horas de trabajo (horario normal, nocturno, extendido, desplazamientos)
 - Detalles de proyectos y servicios realizados
-- Equipos técnicos intervenidos
-- Participantes en los trabajos
+- Equipos técnicos intervenidos (válvulas, bombas, sensores)
+- Participantes en los trabajos y qué empresa representan
+- Tipo de trabajo (preventivo, correctivo, on-call, instalación)
 - Información de facturación
 
 Instrucciones:
@@ -43,6 +44,25 @@ Instrucciones:
 3. Si hay varias fuentes, resume los totales por cliente o proyecto
 4. Si no hay información suficiente, dilo claramente
 5. Cita SIEMPRE el número de acta cuando menciones información específica
+6. Para preguntas sobre empleados, indica claramente qué empleado hizo qué trabajo
+7. Para preguntas sobre facturación, resume el total por cliente
+
+TIPOS DE PREGUNTAS Y CÓMO RESPONDER:
+
+P: "¿Cuánto hemos facturado a [CLIENTE]?"
+R: Lista las actas de ese cliente con sus horas y presenta un total
+
+P: "¿Qué trabajos hizo [EMPLEADO] en 2024?"
+R: Lista las actas donde participó ese empleado con fecha, cliente y trabajo realizado
+
+P: "¿Qué incidencias tuvo el proyecto X?"
+R: Lista las actas de ese proyecto con descripción y solución
+
+P: "¿Horas de mantenimiento preventivo vs correctivo?"
+R: Resume las horas por tipo de trabajo
+
+P: "¿Qué trabajos OnCall hicimos?"
+R: Lista las actas de tipo On-Call con fechas y soluciones
 
 Ejemplo de respuesta correcta para horas:
 "Según las actas analizadas:
@@ -142,8 +162,8 @@ export class AgentService {
       { role: 'system', content: systemPrompt },
     ];
 
-    // Add conversation history (last 6 messages = 3 exchanges)
-    for (const msg of conversationHistory.slice(-6)) {
+    // Add conversation history (last 10 messages = 5 exchanges)
+    for (const msg of conversationHistory.slice(-10)) {
       messages.push({
         role: msg.role,
         content: msg.content,
@@ -190,7 +210,28 @@ export class AgentService {
       
       let answer = rawAnswer;
       
-      // Enhanced think block removal - remove all thinking patterns
+      // ULTIMATE CLEANUP: Find first real content and start from there
+      // Skip all think/correction/instruction text at the start
+      let startIdx = 0;
+      
+      // Find first markdown header (most reliable marker of real content)
+      const headerMatch = answer.search(/#{1,3}\s+[\w\d]/);
+      if (headerMatch !== -1 && headerMatch < 150) {
+        startIdx = headerMatch;
+      } else {
+        // If no header, find where actual content starts (after numbers/lists like "1.", "2.")
+        // Look for paragraph starting with capital letter after a newline
+        const paraMatch = answer.match(/\n[A-Z][a-zéíóúñ]{3,}/);
+        if (paraMatch && paraMatch.index && paraMatch.index < 100) {
+          startIdx = paraMatch.index;
+        }
+      }
+      
+      answer = answer.substring(startIdx);
+      
+      // Final cleanup: remove any remaining think artifacts at very start
+      answer = answer.replace(/^[\s\n]*(?:\d+[\.):]\s*)+/, '');
+      answer = answer.replace(/^[\s\n]*(?:Datos|Información|Resultados| respuesta)[\s:]/i, '');
       const thinkPatterns = [
         // Spanish patterns
         /Debo (?:calcular|responder|analizar|ver|revisar)[\s\S]{0,200}?(?=\n\n|Respuesta|Información)/gi,
@@ -337,8 +378,41 @@ export class AgentService {
       // Include participants
       if (inc.participants && Array.isArray(inc.participants) && inc.participants.length > 0) {
         const names = inc.participants.map((p: any) => p.name || p).join(', ');
-        context += `**Participantes:** ${names}\n\n`;
+        context += `**Participantes:** ${names}\n`;
+        
+        const hexaParticipants = inc.participants.filter((p: any) => p.organization === 'Hexa Ingenieros');
+        if (hexaParticipants.length > 0) {
+          context += `**HEXA Ingenieros:** ${hexaParticipants.map((p: any) => p.name).join(', ')}\n`;
+        }
+        context += '\n';
       }
+      
+      // Include work type
+      if (inc.workType) {
+        const workTypeLabels: Record<string, string> = {
+          'preventivo': 'Mantenimiento Preventivo',
+          'correctivo': 'Mantenimiento Correctivo',
+          'predictivo': 'Mantenimiento Predictivo',
+          'oncall': 'Servicio On-Call',
+          'instalacion': 'Instalación',
+          'auditoria': 'Auditoría'
+        };
+        context += `**Tipo de trabajo:** ${workTypeLabels[inc.workType] || inc.workType}\n\n`;
+      }
+      
+      // Include equipment
+      if (inc.equipment && Array.isArray(inc.equipment) && inc.equipment.length > 0) {
+        context += `**Equipos técnicos:** ${inc.equipment.join(', ')}\n\n`;
+      }
+      
+      // Include diagnosis and solution
+      if (inc.diagnosis) {
+        context += `**Diagnóstico:** ${inc.diagnosis.substring(0, 200)}\n`;
+      }
+      if (inc.solution) {
+        context += `**Solución:** ${inc.solution.substring(0, 200)}\n`;
+      }
+      if (inc.diagnosis || inc.solution) context += '\n';
       
       // Include works done summary
       if (inc.worksDone && Array.isArray(inc.worksDone) && inc.worksDone.length > 0) {

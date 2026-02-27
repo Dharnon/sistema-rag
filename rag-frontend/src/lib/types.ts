@@ -21,6 +21,11 @@ export interface IncidentReport {
   problemDescription?: string;
   rootCause?: string;
   impact?: string;
+  diagnosis?: string;
+  solution?: string;
+  workType?: 'preventivo' | 'correctivo' | 'predictivo' | 'oncall' | 'instalacion' | 'auditoria';
+  equipment?: string[];
+  materials?: string[];
   worksDone?: WorkDone[];
   resolutionSteps: string[];
   workaround?: string;
@@ -148,6 +153,7 @@ export interface EnhancedStats {
   byStatus: Record<string, number>;
   byCategory: Record<string, number>;
   byClient: Record<string, number>;
+  byWorkType?: Record<string, number>;
   topParticipants: Array<{ name: string; count: number }>;
   recentActivity: Array<{
     id: string;
@@ -156,4 +162,5 @@ export interface EnhancedStats {
     category: string;
     detectedAt: string;
   }>;
+  allIncidents?: IncidentReport[];
 }

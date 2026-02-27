@@ -2,6 +2,8 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low';
 
 export type IncidentStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 
+export type WorkType = 'preventivo' | 'correctivo' | 'predictivo' | 'oncall' | 'instalacion' | 'auditoria';
+
 export interface Participant {
   name: string;
   role?: string;
@@ -58,6 +60,12 @@ export interface IncidentReport {
   problemDescription?: string;
   rootCause?: string;
   impact?: string;
+  diagnosis?: string;
+  solution?: string;
+  
+  workType?: WorkType;
+  equipment?: string[];
+  materials?: string[];
   
   worksDone?: WorkDone[];
   resolutionSteps: string[];

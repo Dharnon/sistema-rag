@@ -2,7 +2,7 @@ import { basename } from 'path';
 import pdf from 'pdf-parse';
 import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import type { IncidentReport, Severity, IncidentStatus, Participant, WorkDone, HoursSummary } from '../models/incident.js';
+import type { IncidentReport, Severity, IncidentStatus, Participant, WorkDone, HoursSummary, WorkType } from '../models/incident.js';
 
 export interface ParsedDocument {
   text: string;
@@ -62,6 +62,12 @@ export class PdfParserService {
       problemDescription: this.extractProblemDescription(text),
       rootCause: this.extractRootCause(text),
       impact: this.extractImpact(text),
+      diagnosis: this.extractDiagnosis(text),
+      solution: this.extractSolution(text),
+      
+      workType: this.extractWorkType(normalizedText),
+      equipment: this.extractEquipment(text),
+      materials: this.extractMaterials(text),
       
       participants: this.extractParticipants(text),
       worksDone: this.extractWorksDone(text),
@@ -180,6 +186,10 @@ export class PdfParserService {
     const participants: Participant[] = [];
     const lines = text.split('\n');
     
+    const hexaEmployees = [
+      'Marco Sánchez Saguar', 'David Rodríguez García', 'Adrián Muñoz Gregorio'
+    ];
+    
     const bulletPattern = /(?:•|▸|-|▪|⊙)\s*([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)+)\s*(?:\(([^)]+)\))?/g;
     const knownRoles = ['HEXA Ingenieros', 'Hexa Ingenieros', 'cliente', 'client', 'soporte', 'support'];
     
@@ -193,7 +203,15 @@ export class PdfParserService {
           let organization: string | undefined;
           let role: string | undefined;
           
-          if (org) {
+          // Override organization for known HEXA employees
+          const isHexaEmployee = hexaEmployees.some(e => 
+            name.toLowerCase().includes(e.toLowerCase()) || 
+            e.toLowerCase().includes(name.toLowerCase())
+          );
+          
+          if (isHexaEmployee) {
+            organization = 'Hexa Ingenieros';
+          } else if (org) {
             const orgLower = org.toLowerCase();
             if (knownRoles.some(r => orgLower.includes(r.toLowerCase()))) {
               organization = org;
@@ -932,6 +950,102 @@ export class PdfParserService {
       const match = text.match(pattern);
       if (match && match[1]) {
         return match[1].replace(/[,:\.]+$/, '').trim();
+      }
+    }
+    return undefined;
+  }
+
+  private extractWorkType(text: string): 'preventivo' | 'correctivo' | 'predictivo' | 'oncall' | 'instalacion' | 'auditoria' | undefined {
+    if (text.includes('preventivo') || text.includes('mantenimiento preventivo')) {
+      return 'preventivo';
+    }
+    if (text.includes('correctivo') || text.includes('mantenimiento correctivo')) {
+      return 'correctivo';
+    }
+    if (text.includes('predictivo') || text.includes('mantenimiento predictivo')) {
+      return 'predictivo';
+    }
+    if (text.includes('on-call') || text.includes('oncall') || text.includes('on call') || text.includes('call')) {
+      return 'oncall';
+    }
+    if (text.includes('instalación') || text.includes('instalacion') || text.includes('montaje')) {
+      return 'instalacion';
+    }
+    if (text.includes('auditoría') || text.includes('auditoria') || text.includes('audito')) {
+      return 'auditoria';
+    }
+    return undefined;
+  }
+
+  private extractEquipment(text: string): string[] {
+    const equipment: string[] = [];
+    
+    const valvePattern = /\b[A-Z]{2,4}\d{2,6}[A-Z]?\b/g;
+    const valveMatches = text.match(valvePattern) || [];
+    equipment.push(...valveMatches.filter(e => !equipment.includes(e)).slice(0, 10));
+    
+    const pumpPattern = /\b(?:PWS?|Bomba|BMB|PMR)\s*\d*[A-Z]?\b/gi;
+    const pumpMatches = text.match(pumpPattern) || [];
+    equipment.push(...pumpMatches.filter(e => !equipment.includes(e)).slice(0, 5));
+    
+    const tankPattern = /\bT\d{3,4}\b/gi;
+    const tankMatches = text.match(tankPattern) || [];
+    equipment.push(...tankMatches.filter(e => !equipment.includes(e)).slice(0, 5));
+    
+    const sensorPattern = /\b(?:TS?|TE?|TT?|PT?|FT?)\d{3,6}\b/gi;
+    const sensorMatches = text.match(sensorPattern) || [];
+    equipment.push(...sensorMatches.filter(e => !equipment.includes(e)).slice(0, 5));
+    
+    return equipment.slice(0, 15);
+  }
+
+  private extractMaterials(text: string): string[] {
+    const materials: string[] = [];
+    
+    const materialPatterns = [
+      /(?:materiales|material|repuesto|recambio|piezas?|componentes?)[\s:.-]*([^\n]{5,100})/gi,
+      /(?:junta| juntas?|tornillo| tornillos?|válvula| válvulas?|rótula|rotula|reten|rodamiento|cojinete|bolsa|bolsas|filtro|filtros)[\s\d]*(?:[,\d]|\sde\s)/gi,
+    ];
+    
+    for (const pattern of materialPatterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1] && match[1].length > 5) {
+          materials.push(match[1].substring(0, 100).trim());
+        } else if (match[0].length > 3) {
+          materials.push(match[0].substring(0, 100).trim());
+        }
+      }
+    }
+    
+    return [...new Set(materials)].slice(0, 10);
+  }
+
+  private extractDiagnosis(text: string): string | undefined {
+    const patterns = [
+      /(?:diagnóstico|diagnosis|diagnostico|analisis|análisis|causa|problema\s+detectado)[\s:.-]*([^\n]{10,300})/gi,
+      /(?:se\s+(?:detecta|observa|detecto|observo|constata|constato))([^\n]{10,200})/gi,
+    ];
+    
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        return match[1].substring(0, 500).trim();
+      }
+    }
+    return undefined;
+  }
+
+  private extractSolution(text: string): string | undefined {
+    const patterns = [
+      /(?:solución|solucion|solució|resolución|resolucion|trabajo\s+realizado|acciones\s+realizadas|trabajos\s+realizados)[\s:.-]*([^\n]{10,300})/gi,
+      /(?:se\s+(?:realiza|realizo|efectúa|efectuo|ejecuta|ejecuto|procede|procedio))([^\n]{10,200})/gi,
+    ];
+    
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        return match[1].substring(0, 500).trim();
       }
     }
     return undefined;

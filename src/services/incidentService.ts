@@ -201,6 +201,23 @@ export class IncidentService {
       byClient[client] = (byClient[client] || 0) + 1;
     }
     
+    // By work type
+    const byWorkType: Record<string, number> = {};
+    for (const inc of incidents) {
+      const workType = inc.workType || 'sin_tipo';
+      byWorkType[workType] = (byWorkType[workType] || 0) + 1;
+    }
+    
+    const workTypeLabels: Record<string, string> = {
+      'preventivo': 'Preventivo',
+      'correctivo': 'Correctivo',
+      'predictivo': 'Predictivo',
+      'oncall': 'On-Call',
+      'instalacion': 'Instalación',
+      'auditoria': 'Auditoría',
+      'sin_tipo': 'Sin clasificar'
+    };
+    
     return {
       totalIncidents: incidents.length,
       totalChunks: vectorCount,
@@ -221,8 +238,24 @@ export class IncidentService {
         return acc;
       }, {} as Record<string, number>),
       byClient,
+      byWorkType: Object.fromEntries(
+        Object.entries(byWorkType).map(([k, v]) => [workTypeLabels[k] || k, v])
+      ),
       topParticipants,
       recentActivity: recentIncidents,
+      allIncidents: incidents.map(inc => ({
+        id: inc.id,
+        incidentNumber: inc.incidentNumber,
+        client: inc.client,
+        project: inc.project,
+        title: inc.title,
+        category: inc.category,
+        detectedAt: inc.detectedAt,
+        hoursSummary: inc.hoursSummary,
+        workType: inc.workType,
+        participants: inc.participants,
+        status: inc.status,
+      })),
     };
   }
 
@@ -248,6 +281,11 @@ export class IncidentService {
       problemDescription: structured.problemDescription,
       rootCause: structured.rootCause,
       impact: structured.impact,
+      diagnosis: structured.diagnosis,
+      solution: structured.solution,
+      workType: structured.workType,
+      equipment: structured.equipment || [],
+      materials: structured.materials || [],
       participants: structured.participants || [],
       worksDone: structured.worksDone || [],
       hoursSummary: structured.hoursSummary,

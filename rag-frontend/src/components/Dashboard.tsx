@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   FileText, 
   Clock, 
@@ -6,7 +6,9 @@ import {
   TrendingUp,
   AlertCircle,
   BarChart3,
-  Calendar
+  Calendar,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import type { EnhancedStats } from '../lib/types';
 
@@ -17,6 +19,18 @@ interface DashboardProps {
 }
 
 export function Dashboard({ stats, loading, onFilterByClient }: DashboardProps) {
+  const [showExplorer, setShowExplorer] = useState(false);
+  const [filters, setFilters] = useState({
+    client: '',
+    project: '',
+    workType: '',
+    dateFrom: '',
+    dateTo: '',
+  });
+  const [sortField, setSortField] = useState<string>('detectedAt');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  
   useEffect(() => {
   }, [stats, loading]);
 
@@ -51,6 +65,18 @@ export function Dashboard({ stats, loading, onFilterByClient }: DashboardProps) 
     const order = ['critical', 'high', 'medium', 'low'];
     return order.indexOf(a[0]) - order.indexOf(b[0]);
   });
+  
+  const workTypeEntries = Object.entries(stats.byWorkType || {}).sort((a, b) => b[1] - a[1]);
+  
+  const workTypeColors: Record<string, string> = {
+    'On-Call': '#8b5cf6',
+    'Preventivo': '#10b981',
+    'Correctivo': '#f97316',
+    'Predictivo': '#06b6d4',
+    'Instalación': '#f59e0b',
+    'Auditoría': '#6366f1',
+    'Sin clasificar': '#9ca3af',
+  };
 
   return (
     <div className="dashboard">
@@ -187,6 +213,40 @@ export function Dashboard({ stats, loading, onFilterByClient }: DashboardProps) 
 
         <div className="dashboard-card">
           <h3>
+            <AlertCircle size={18} />
+            Por Tipo de Trabajo
+          </h3>
+          {workTypeEntries.length > 0 ? (
+            <div className="severity-chart">
+              {workTypeEntries.map(([workType, count]) => (
+                <div key={workType} className="severity-row">
+                  <div className="severity-info">
+                    <span 
+                      className="severity-dot" 
+                      style={{ background: workTypeColors[workType] || '#6b7280' }}
+                    ></span>
+                    <span className="severity-label">{workType}</span>
+                  </div>
+                  <div className="severity-bar-container">
+                    <div 
+                      className="severity-bar" 
+                      style={{ 
+                        width: `${(count / stats.totalIncidents) * 100}%`,
+                        background: workTypeColors[workType] || '#6b7280'
+                      }}
+                    ></div>
+                  </div>
+                  <span className="severity-value">{count}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-message">No hay tipos de trabajo</p>
+          )}
+        </div>
+
+        <div className="dashboard-card">
+          <h3>
             <Users size={18} />
             Top Participantes
           </h3>
@@ -263,6 +323,195 @@ export function Dashboard({ stats, loading, onFilterByClient }: DashboardProps) 
           </div>
         </div>
       </div>
+
+      <div className="explorer-toggle">
+        <button 
+          className="toggle-btn"
+          onClick={() => setShowExplorer(!showExplorer)}
+        >
+          <BarChart3 size={18} />
+          {showExplorer ? 'Ocultar' : 'Explorador de Datos'}
+          {showExplorer ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+      </div>
+
+      {showExplorer && stats.allIncidents && (
+        <div className="data-explorer">
+          <div className="explorer-filters">
+            <div className="filter-group">
+              <label>Cliente</label>
+              <select 
+                value={filters.client}
+                onChange={(e) => setFilters({...filters, client: e.target.value})}
+              >
+                <option value="">Todos</option>
+                {Object.keys(stats.byClient || {}).map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="filter-group">
+              <label>Tipo de Trabajo</label>
+              <select 
+                value={filters.workType}
+                onChange={(e) => setFilters({...filters, workType: e.target.value})}
+              >
+                <option value="">Todos</option>
+                {Object.keys(stats.byWorkType || {}).map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+            <div className="filter-group">
+              <label>Desde</label>
+              <input 
+                type="date"
+                value={filters.dateFrom}
+                onChange={(e) => setFilters({...filters, dateFrom: e.target.value})}
+              />
+            </div>
+            <div className="filter-group">
+              <label>Hasta</label>
+              <input 
+                type="date"
+                value={filters.dateTo}
+                onChange={(e) => setFilters({...filters, dateTo: e.target.value})}
+              />
+            </div>
+            <button 
+              className="clear-btn"
+              onClick={() => setFilters({client: '', project: '', workType: '', dateFrom: '', dateTo: ''})}
+            >
+              Limpiar
+            </button>
+          </div>
+
+          {(() => {
+            let filtered = [...(stats.allIncidents || [])];
+            
+            if (filters.client) {
+              filtered = filtered.filter(i => i.client === filters.client);
+            }
+            if (filters.workType) {
+              filtered = filtered.filter(i => i.workType === filters.workType);
+            }
+            if (filters.dateFrom) {
+              filtered = filtered.filter(i => new Date(i.detectedAt) >= new Date(filters.dateFrom));
+            }
+            if (filters.dateTo) {
+              filtered = filtered.filter(i => new Date(i.detectedAt) <= new Date(filters.dateTo));
+            }
+            
+            const totalHoras = filtered.reduce((sum, i) => sum + (i.hoursSummary?.total || 0), 0);
+            const totalNormal = filtered.reduce((sum, i) => sum + (i.hoursSummary?.normal || 0), 0);
+            const totalNoche = filtered.reduce((sum, i) => sum + (i.hoursSummary?.night || 0), 0);
+            
+            const sorted = filtered.sort((a, b) => {
+              let aVal: any, bVal: any;
+              if (sortField === 'detectedAt') {
+                aVal = new Date(a.detectedAt).getTime();
+                bVal = new Date(b.detectedAt).getTime();
+              } else if (sortField === 'hours') {
+                aVal = a.hoursSummary?.total || 0;
+                bVal = b.hoursSummary?.total || 0;
+              } else if (sortField === 'client') {
+                aVal = a.client || '';
+                bVal = b.client || '';
+              } else {
+                aVal = (a as any)[sortField] || '';
+                bVal = (b as any)[sortField] || '';
+              }
+              if (sortDir === 'asc') {
+                return aVal > bVal ? 1 : -1;
+              }
+              return aVal < bVal ? 1 : -1;
+            });
+
+            return (
+              <>
+                <div className="explorer-summary">
+                  <span><strong>{filtered.length}</strong> documentos</span>
+                  <span><strong>{totalHoras}h</strong> totales</span>
+                  <span>(Normal: {totalNormal}h | Noche: {totalNoche}h)</span>
+                </div>
+                
+                <div className="explorer-table-container">
+                  <table className="explorer-table">
+                    <thead>
+                      <tr>
+                        <th onClick={() => { setSortField('incidentNumber'); setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); }}>
+                          Acta {sortField === 'incidentNumber' && (sortDir === 'asc' ? '▲' : '▼')}
+                        </th>
+                        <th onClick={() => { setSortField('client'); setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); }}>
+                          Cliente {sortField === 'client' && (sortDir === 'asc' ? '▲' : '▼')}
+                        </th>
+                        <th onClick={() => { setSortField('detectedAt'); setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); }}>
+                          Fecha {sortField === 'detectedAt' && (sortDir === 'asc' ? '▲' : '▼')}
+                        </th>
+                        <th>Tipo</th>
+                        <th onClick={() => { setSortField('hours'); setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); }}>
+                          Horas {sortField === 'hours' && (sortDir === 'asc' ? '▲' : '▼')}
+                        </th>
+                        <th>Participantes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sorted.map(inc => (
+                        <React.Fragment key={inc.id}>
+                          <tr 
+                            className={expandedRow === inc.id ? 'expanded' : ''}
+                            onClick={() => setExpandedRow(expandedRow === inc.id ? null : inc.id)}
+                          >
+                            <td className="cell-number">{inc.incidentNumber}</td>
+                            <td>{inc.client || '-'}</td>
+                            <td>{new Date(inc.detectedAt).toLocaleDateString('es-ES')}</td>
+                            <td>
+                              <span className={`type-badge type-${inc.workType || 'default'}`}>
+                                {inc.workType || 'General'}
+                              </span>
+                            </td>
+                            <td className="cell-hours">
+                              {inc.hoursSummary?.total || 0}h
+                              {(inc.hoursSummary?.normal || inc.hoursSummary?.night) && (
+                                <span className="hours-detail">
+                                  (N:{inc.hoursSummary.normal || 0} No:{inc.hoursSummary.night || 0})
+                                </span>
+                              )}
+                            </td>
+                            <td className="cell-participants">
+                              {inc.participants?.map((p: any) => p.name).join(', ') || '-'}
+                            </td>
+                          </tr>
+                          {expandedRow === inc.id && (
+                            <tr className="expanded-row">
+                              <td colSpan={6}>
+                                <div className="expanded-content">
+                                  <div className="exp-section">
+                                    <strong>Proyecto:</strong> {inc.project || '-'}
+                                  </div>
+                                  <div className="exp-section">
+                                    <strong>Título:</strong> {inc.title}
+                                  </div>
+                                  <div className="exp-section">
+                                    <strong>Desglose horas:</strong> Normal: {inc.hoursSummary?.normal || 0}h | 
+                                    Noche: {inc.hoursSummary?.night || 0}h | 
+                                    Extendido: {inc.hoursSummary?.extended || 0}h | 
+                                    Desplazamiento: {inc.hoursSummary?.travel || 0}h
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }
